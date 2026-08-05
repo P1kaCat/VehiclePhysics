@@ -57,7 +57,7 @@ public class VehicleCommand implements CommandExecutor {
             vehicleLocation.setPitch(0);
             // BDEngine models face -Z at yaw=0, but getDirection() at yaw=0 is +Z.
             // Rotate 180° so the visual front matches the movement direction.
-            vehicleLocation.setYaw(180f);
+            vehicleLocation.setYaw(0f);
 
             VehicleData data = new VehicleData(
                     vehicleId,
