@@ -17,6 +17,9 @@ import java.util.List;
 
 public class VehicleRenderer {
 
+    private static final int INTERPOLATION_DURATION = 2;
+    private static final int TELEPORT_DURATION = 2;
+
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private Entity seatEntity;
@@ -58,7 +61,7 @@ public class VehicleRenderer {
         if (node.isItemDisplay && node.getItemStack() != null) {
             ItemDisplay itemDisplay = location.getWorld().spawn(location, ItemDisplay.class, display -> {
                 display.setItemStack(node.getItemStack());
-                
+
                 // Convert relative combined matrix to Bukkit Transformation
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
@@ -69,6 +72,11 @@ public class VehicleRenderer {
 
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
+
+                // Smooth interpolation to prevent jitter when teleporting every tick
+                display.setInterpolationDuration(INTERPOLATION_DURATION);
+                display.setInterpolationDelay(0);
+                display.setTeleportDuration(TELEPORT_DURATION);
             });
             parts.add(new DisplayVehicle.Part(itemDisplay, combinedMatrix));
         } else if (node.isTextDisplay && node.options != null && node.options.text != null) {
@@ -84,6 +92,11 @@ public class VehicleRenderer {
 
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
+
+                // Smooth interpolation to prevent jitter when teleporting every tick
+                display.setInterpolationDuration(INTERPOLATION_DURATION);
+                display.setInterpolationDelay(0);
+                display.setTeleportDuration(TELEPORT_DURATION);
             });
             parts.add(new DisplayVehicle.Part(textDisplay, combinedMatrix));
         }
