@@ -39,18 +39,39 @@ public class ModelManager {
     }
 
     private ModelNode loadModel(String modelName) {
-        File file = new File(plugin.getDataFolder(), "models/" + modelName + ".bdengine");
-        if (!file.exists()) {
-            // Check in local workspace models directory as fallback
-            file = new File("models/" + modelName + ".bdengine");
-            if (!file.exists()) {
-                plugin.getLogger().warning("Model file not found: " + file.getAbsolutePath());
-                return null;
+        String resourcePath = "models/" + modelName + ".bdengine";
+
+        // 1. Try bundled in JAR (src/main/resources/models/)
+        InputStream resourceStream = plugin.getResource(resourcePath);
+        if (resourceStream != null) {
+            plugin.getLogger().info("Loading model from bundled resource: " + resourcePath);
+            ModelNode node = parseBdEngine(resourceStream, modelName);
+            if (node != null) {
+                return node;
             }
         }
 
-        try (FileInputStream fis = new FileInputStream(file);
-             GZIPInputStream gis = new GZIPInputStream(fis)) {
+        // 2. Fallback: filesystem (plugins/vehiclephysics/models/)
+        File file = new File(plugin.getDataFolder(), "models/" + modelName + ".bdengine");
+        if (file.exists()) {
+            plugin.getLogger().info("Loading model from filesystem: " + file.getAbsolutePath());
+            try (FileInputStream fis = new FileInputStream(file)) {
+                ModelNode node = parseBdEngine(fis, modelName);
+                if (node != null) {
+                    return node;
+                }
+            } catch (Exception e) {
+                plugin.getLogger().severe("Error loading model from filesystem: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        plugin.getLogger().warning("Model file not found: " + modelName + " (checked JAR and " + file.getAbsolutePath() + ")");
+        return null;
+    }
+
+    private ModelNode parseBdEngine(InputStream inputStream, String modelName) {
+        try (GZIPInputStream gis = new GZIPInputStream(inputStream)) {
 
             byte[] header = new byte[9];
             int read = gis.read(header);
@@ -104,7 +125,7 @@ public class ModelManager {
             }
 
         } catch (Exception e) {
-            plugin.getLogger().severe("Error loading vehicle model " + modelName + ": " + e.getMessage());
+            plugin.getLogger().severe("Error parsing model " + modelName + ": " + e.getMessage());
             e.printStackTrace();
         }
         return null;
