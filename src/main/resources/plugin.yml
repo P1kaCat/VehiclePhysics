@@ -1,4 +1,4 @@
-name: VehiclePhysics
+name: vehiclephysics
 version: 1.0
 main: fr.pikacat.vehiclephysics.VehiclePhysics
 api-version: '1.21'
