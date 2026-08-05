@@ -5,6 +5,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.util.Vector;
 
 import fr.pikacat.vehiclephysics.managers.VehicleManager;
 import fr.pikacat.vehiclephysics.vehicle.Vehicle;
@@ -44,7 +45,18 @@ public class VehicleCommand implements CommandExecutor {
                 vehicleId = args[1];
             }
 
-            Location location = player.getLocation();
+            // Calculate spawn location: 3 blocks to the player's right
+            Location playerLocation = player.getLocation();
+            Vector right = playerLocation.getDirection()
+                    .setY(0)
+                    .normalize()
+                    .crossProduct(new Vector(0, 1, 0));
+            Location vehicleLocation = playerLocation.clone().add(right.multiply(3));
+
+            // Keep vehicle upright, ignore player pitch
+            vehicleLocation.setPitch(0);
+            vehicleLocation.setYaw(0); // North orientation
+
             VehicleData data = new VehicleData(
                     vehicleId,
                     "models/" + vehicleId + ".bdengine",
@@ -53,21 +65,15 @@ public class VehicleCommand implements CommandExecutor {
                     5
             );
 
-            VehicleTransform transform = new VehicleTransform(location.clone());
+            VehicleTransform transform = new VehicleTransform(vehicleLocation);
             Vehicle vehicle = new Vehicle(data, transform);
 
             // Spawn the visual models
-            vehicle.getRenderer().spawn(location);
-
-            // Place driver on the vehicle seat
-            if (vehicle.getRenderer().getSeatEntity() != null) {
-                vehicle.getRenderer().getSeatEntity().addPassenger(player);
-                vehicle.setDriverId(player.getUniqueId());
-            }
+            vehicle.getRenderer().spawn(vehicleLocation);
 
             vehicleManager.addVehicle(vehicle);
 
-            player.sendMessage("Vehicle spawned: " + vehicleId);
+            player.sendMessage("Vehicle spawned: " + vehicleId + " (right-click to enter)");
             return true;
         }
 

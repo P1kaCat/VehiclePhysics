@@ -1,6 +1,7 @@
 package fr.pikacat.vehiclephysics.vehicle;
 
 import java.util.UUID;
+import org.bukkit.entity.Player;
 import fr.pikacat.vehiclephysics.input.PlayerInput;
 
 public class Vehicle {
@@ -11,8 +12,7 @@ public class Vehicle {
     private final VehicleController controller;
     private VehicleRenderer renderer;
 
-    private UUID driverId;
-    private double speed;
+    private Player driver;
     private final PlayerInput playerInput = new PlayerInput();
 
     public Vehicle(VehicleData data, VehicleTransform transform) {
@@ -47,20 +47,12 @@ public class Vehicle {
         this.renderer = renderer;
     }
 
-    public UUID getDriverId() {
-        return driverId;
+    public Player getDriver() {
+        return driver;
     }
 
-    public void setDriverId(UUID driverId) {
-        this.driverId = driverId;
-    }
-
-    public double getSpeed() {
-        return speed;
-    }
-
-    public void setSpeed(double speed) {
-        this.speed = speed;
+    public void setDriver(Player driver) {
+        this.driver = driver;
     }
 
     public PlayerInput getPlayerInput() {
@@ -68,7 +60,13 @@ public class Vehicle {
     }
 
     public void update() {
+        // 1. Read player input (handled by InputListener → PlayerInput)
+        // 2. Apply steering
+        // 3. Apply movement
+        // 4. Apply gravity
         controller.update(playerInput, this);
+
+        // 5. Update the BDEngine model
         if (renderer != null) {
             renderer.update(transform);
         }

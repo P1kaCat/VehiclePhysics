@@ -37,12 +37,12 @@ public class VehicleRenderer {
             return;
         }
 
-        // Spawn seat/base entity (invisible ArmorStand)
+        // Spawn seat entity (invisible ArmorStand for mounting)
         seatEntity = location.getWorld().spawn(location, org.bukkit.entity.ArmorStand.class, armorStand -> {
             armorStand.setInvisible(true);
             armorStand.setGravity(false);
             armorStand.setSmall(true);
-            armorStand.setMarker(true);
+            armorStand.setMarker(false); // marker=false so it can have passengers
         });
 
         // Spawn visual parts recursively
@@ -52,7 +52,6 @@ public class VehicleRenderer {
     private void spawnNode(ModelManager.ModelNode node, Matrix4f parentMatrix, Location location) {
         Matrix4f localMatrix = new Matrix4f();
         if (node.transforms != null && node.transforms.length == 16) {
-            // Note: BDEngine transforms are row-major, so we load them transposed to be column-major for JOML
             localMatrix.set(node.transforms).transpose();
         }
 
@@ -62,7 +61,6 @@ public class VehicleRenderer {
             ItemDisplay itemDisplay = location.getWorld().spawn(location, ItemDisplay.class, display -> {
                 display.setItemStack(node.getItemStack());
 
-                // Convert relative combined matrix to Bukkit Transformation
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
                 Vector3f scale = new Vector3f();
@@ -72,8 +70,6 @@ public class VehicleRenderer {
 
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
-
-                // Smooth interpolation to prevent jitter when teleporting every tick
                 display.setInterpolationDuration(INTERPOLATION_DURATION);
                 display.setInterpolationDelay(0);
                 display.setTeleportDuration(TELEPORT_DURATION);
@@ -92,8 +88,6 @@ public class VehicleRenderer {
 
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
-
-                // Smooth interpolation to prevent jitter when teleporting every tick
                 display.setInterpolationDuration(INTERPOLATION_DURATION);
                 display.setInterpolationDelay(0);
                 display.setTeleportDuration(TELEPORT_DURATION);
@@ -112,14 +106,14 @@ public class VehicleRenderer {
         Location loc = transform.getLocation();
         float yaw = transform.getYaw();
 
-        // Move the driver seat base entity
+        // Move seat entity with the vehicle
         if (seatEntity != null && seatEntity.isValid()) {
             Location seatLoc = loc.clone();
             seatLoc.setYaw(yaw);
             seatEntity.teleport(seatLoc);
         }
 
-        // Teleport all parts to the vehicle center and align their yaw
+        // Teleport all display parts to vehicle position
         for (DisplayVehicle.Part part : parts) {
             if (part.entity.isValid()) {
                 Location partLoc = loc.clone();
@@ -142,5 +136,9 @@ public class VehicleRenderer {
 
     public Entity getSeatEntity() {
         return seatEntity;
+    }
+
+    public List<DisplayVehicle.Part> getParts() {
+        return parts;
     }
 }

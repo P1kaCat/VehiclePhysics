@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInputEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.entity.EntityDismountEvent;
 
@@ -20,21 +21,55 @@ public class InputListener implements Listener {
     @EventHandler
     public void onPlayerInput(PlayerInputEvent event) {
         Player player = event.getPlayer();
-        org.bukkit.entity.Entity vehicleEntity = player.getVehicle();
-        if (vehicleEntity == null) return;
 
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
-            if (vehicle.getRenderer() != null && vehicleEntity.equals(vehicle.getRenderer().getSeatEntity())) {
+            if (player.equals(vehicle.getDriver())) {
                 org.bukkit.Input input = event.getInput();
                 PlayerInput pi = vehicle.getPlayerInput();
                 pi.setForward(input.isForward());
                 pi.setBackward(input.isBackward());
                 pi.setLeft(input.isLeft());
                 pi.setRight(input.isRight());
+                break;
+            }
+        }
+    }
 
-                // Keep driver UUID synchronized
-                if (vehicle.getDriverId() == null) {
-                    vehicle.setDriverId(player.getUniqueId());
+    @EventHandler
+    public void onInteractEntity(PlayerInteractEntityEvent event) {
+        Player player = event.getPlayer();
+        org.bukkit.entity.Entity clicked = event.getRightClicked();
+
+        for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
+            if (vehicle.getRenderer() == null) continue;
+
+            // Check if clicked entity is part of this vehicle
+            boolean isVehicleEntity = false;
+
+            // Check seat entity
+            if (clicked.equals(vehicle.getRenderer().getSeatEntity())) {
+                isVehicleEntity = true;
+            }
+
+            // Check display parts
+            if (!isVehicleEntity) {
+                for (var part : vehicle.getRenderer().getParts()) {
+                    if (clicked.equals(part.entity)) {
+                        isVehicleEntity = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isVehicleEntity) {
+                if (vehicle.getDriver() == null) {
+                    // Mount player on seat
+                    if (vehicle.getRenderer().getSeatEntity() != null) {
+                        vehicle.getRenderer().getSeatEntity().addPassenger(player);
+                        vehicle.setDriver(player);
+                        player.sendMessage("You are now driving this vehicle.");
+                    }
+                    event.setCancelled(true);
                 }
                 break;
             }
@@ -48,8 +83,7 @@ public class InputListener implements Listener {
 
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (vehicle.getRenderer() != null && vehicleEntity.equals(vehicle.getRenderer().getSeatEntity())) {
-                vehicle.setDriverId(null);
-                // Reset inputs
+                vehicle.setDriver(null);
                 PlayerInput pi = vehicle.getPlayerInput();
                 pi.setForward(false);
                 pi.setBackward(false);
@@ -63,9 +97,10 @@ public class InputListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
-            if (player.getUniqueId().equals(vehicle.getDriverId())) {
-                vehicle.setDriverId(null);
+            if (player.equals(vehicle.getDriver())) {
+                vehicle.setDriver(null);
                 PlayerInput pi = vehicle.getPlayerInput();
                 pi.setForward(false);
                 pi.setBackward(false);
