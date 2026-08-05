@@ -43,10 +43,10 @@ public class InputListener implements Listener {
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (vehicle.getRenderer() == null) continue;
 
-            // Use renderer to check if clicked entity belongs to this vehicle
             if (vehicle.getRenderer().isVehicleEntity(clicked)) {
                 if (vehicle.getDriver() == null) {
                     vehicle.setDriver(player);
+                    vehicle.getRenderer().enterVehicle(player);
                     player.sendMessage("You are now driving this vehicle.");
                     event.setCancelled(true);
                 }
@@ -79,6 +79,7 @@ public class InputListener implements Listener {
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (player.equals(vehicle.getDriver())) {
                 vehicle.setDriver(null);
+                vehicle.getRenderer().exitVehicle(player);
                 PlayerInput pi = vehicle.getPlayerInput();
                 pi.setForward(false);
                 pi.setBackward(false);
