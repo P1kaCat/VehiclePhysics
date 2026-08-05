@@ -55,7 +55,9 @@ public class VehicleCommand implements CommandExecutor {
 
             // Keep vehicle upright, ignore player pitch
             vehicleLocation.setPitch(0);
-            vehicleLocation.setYaw(0); // North orientation
+            // BDEngine models face -Z at yaw=0, but getDirection() at yaw=0 is +Z.
+            // Rotate 180° so the visual front matches the movement direction.
+            vehicleLocation.setYaw(180f);
 
             VehicleData data = new VehicleData(
                     vehicleId,
