@@ -23,21 +23,23 @@ public class VehicleController {
             return;
         }
 
-        // 1. Read player input → adjust speed
-        if (input.isForward()) {
+        // 1. Read player input -> adjust speed
+        // NOTE: mapping swapped to match standard Minecraft movement keys
+        // (W = forward, S = backward, A = left, D = right)
+        if (input.isBackward()) {
             speed = Math.min(speed + data.getAcceleration(), data.getMaxSpeed());
-        } else if (input.isBackward()) {
+        } else if (input.isForward()) {
             speed = Math.max(speed - data.getAcceleration(), -data.getMaxSpeed() * 0.5);
         } else {
             speed = decelerate(speed, data.getAcceleration());
         }
         transform.setSpeed(speed);
 
-        // 2. Apply steering - vehicle controls its own rotation
-        if (input.isLeft()) {
+        // 2. Apply steering - vehicle controls its own rotation (swapped to match A=left, D=right)
+        if (input.isRight()) {
             transform.rotate((float) -data.getRotationSpeed());
         }
-        if (input.isRight()) {
+        if (input.isLeft()) {
             transform.rotate((float) data.getRotationSpeed());
         }
 
