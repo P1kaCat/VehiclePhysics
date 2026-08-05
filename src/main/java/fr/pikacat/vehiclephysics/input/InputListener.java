@@ -43,32 +43,11 @@ public class InputListener implements Listener {
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (vehicle.getRenderer() == null) continue;
 
-            // Check if clicked entity is part of this vehicle
-            boolean isVehicleEntity = false;
-
-            // Check seat entity
-            if (clicked.equals(vehicle.getRenderer().getSeatEntity())) {
-                isVehicleEntity = true;
-            }
-
-            // Check display parts
-            if (!isVehicleEntity) {
-                for (var part : vehicle.getRenderer().getParts()) {
-                    if (clicked.equals(part.entity)) {
-                        isVehicleEntity = true;
-                        break;
-                    }
-                }
-            }
-
-            if (isVehicleEntity) {
+            // Use renderer to check if clicked entity belongs to this vehicle
+            if (vehicle.getRenderer().isVehicleEntity(clicked)) {
                 if (vehicle.getDriver() == null) {
-                    // Mount player on seat
-                    if (vehicle.getRenderer().getSeatEntity() != null) {
-                        vehicle.getRenderer().getSeatEntity().addPassenger(player);
-                        vehicle.setDriver(player);
-                        player.sendMessage("You are now driving this vehicle.");
-                    }
+                    vehicle.setDriver(player);
+                    player.sendMessage("You are now driving this vehicle.");
                     event.setCancelled(true);
                 }
                 break;
@@ -79,10 +58,9 @@ public class InputListener implements Listener {
     @EventHandler
     public void onDismount(EntityDismountEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
-        org.bukkit.entity.Entity vehicleEntity = event.getDismounted();
 
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
-            if (vehicle.getRenderer() != null && vehicleEntity.equals(vehicle.getRenderer().getSeatEntity())) {
+            if (player.equals(vehicle.getDriver())) {
                 vehicle.setDriver(null);
                 PlayerInput pi = vehicle.getPlayerInput();
                 pi.setForward(false);
@@ -106,9 +84,6 @@ public class InputListener implements Listener {
                 pi.setBackward(false);
                 pi.setLeft(false);
                 pi.setRight(false);
-                if (vehicle.getRenderer() != null && vehicle.getRenderer().getSeatEntity() != null) {
-                    vehicle.getRenderer().getSeatEntity().removePassenger(player);
-                }
                 break;
             }
         }

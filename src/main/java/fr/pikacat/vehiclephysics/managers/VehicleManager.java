@@ -22,7 +22,6 @@ public class VehicleManager {
     }
 
     public void removeVehicle(Vehicle vehicle) {
-        // Clear driver reference
         if (vehicle.getDriver() != null) {
             vehicle.setDriver(null);
         }

@@ -3,8 +3,10 @@ package fr.pikacat.vehiclephysics.vehicle;
 import fr.pikacat.vehiclephysics.VehiclePhysics;
 import fr.pikacat.vehiclephysics.managers.ModelManager;
 import fr.pikacat.vehiclephysics.rendering.DisplayVehicle;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.util.Transformation;
@@ -13,16 +15,21 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 public class VehicleRenderer {
 
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
+    private static final double INTERACTION_SCAN_RADIUS = 10.0;
 
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
-    private Entity seatEntity;
+    private final List<Entity> interactionEntities = new ArrayList<>();
+    private final Set<UUID> knownInteractionIds = new HashSet<>();
 
     public VehicleRenderer(VehicleData data) {
         this.data = data;
@@ -37,16 +44,37 @@ public class VehicleRenderer {
             return;
         }
 
-        // Spawn seat entity (invisible ArmorStand for mounting)
-        seatEntity = location.getWorld().spawn(location, org.bukkit.entity.ArmorStand.class, armorStand -> {
-            armorStand.setInvisible(true);
-            armorStand.setGravity(false);
-            armorStand.setSmall(true);
-            armorStand.setMarker(false); // marker=false so it can have passengers
-        });
-
         // Spawn visual parts recursively
         spawnNode(rootNode, new Matrix4f(), location);
+
+        // Run BDEngine interactive function (creates seat/interaction entities)
+        runInteractiveFunction("create");
+
+        // After the function runs (next tick), find and track the new Interaction entities
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            trackInteractionEntities(location);
+        }, 2L); // 2 ticks delay to let the function execute
+    }
+
+    private void runInteractiveFunction(String action) {
+        VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
+        // Function name format: <model>full:_/<action>_interactive
+        String functionName = data.getId() + "full:_/" + action + "_interactive";
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "function " + functionName);
+        plugin.getLogger().info("Ran function: " + functionName);
+    }
+
+    private void trackInteractionEntities(Location vehicleLocation) {
+        // Find all Interaction entities near the vehicle that we don't already know about
+        for (Entity entity : vehicleLocation.getWorld().getNearbyEntities(vehicleLocation, INTERACTION_SCAN_RADIUS, INTERACTION_SCAN_RADIUS, INTERACTION_SCAN_RADIUS)) {
+            if (entity instanceof Interaction && !knownInteractionIds.contains(entity.getUniqueId())) {
+                interactionEntities.add(entity);
+                knownInteractionIds.add(entity.getUniqueId());
+            }
+        }
+
+        VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
+        plugin.getLogger().info("Found " + interactionEntities.size() + " interaction entities for vehicle " + data.getId());
     }
 
     private void spawnNode(ModelManager.ModelNode node, Matrix4f parentMatrix, Location location) {
@@ -106,13 +134,6 @@ public class VehicleRenderer {
         Location loc = transform.getLocation();
         float yaw = transform.getYaw();
 
-        // Move seat entity with the vehicle
-        if (seatEntity != null && seatEntity.isValid()) {
-            Location seatLoc = loc.clone();
-            seatLoc.setYaw(yaw);
-            seatEntity.teleport(seatLoc);
-        }
-
         // Teleport all display parts to vehicle position
         for (DisplayVehicle.Part part : parts) {
             if (part.entity.isValid()) {
@@ -121,24 +142,53 @@ public class VehicleRenderer {
                 part.entity.teleport(partLoc);
             }
         }
+
+        // Teleport interaction entities (BDEngine seat) with the vehicle
+        for (Entity interaction : interactionEntities) {
+            if (interaction.isValid()) {
+                Location intLoc = loc.clone();
+                intLoc.setYaw(yaw);
+                interaction.teleport(intLoc);
+            }
+        }
     }
 
     public void remove() {
-        if (seatEntity != null) {
-            seatEntity.remove();
-            seatEntity = null;
+        // Run BDEngine delete function to remove interaction/seat entities
+        runInteractiveFunction("delete");
+
+        // Remove interaction entities we tracked
+        for (Entity interaction : interactionEntities) {
+            if (interaction.isValid()) {
+                interaction.remove();
+            }
         }
+        interactionEntities.clear();
+        knownInteractionIds.clear();
+
+        // Remove visual display parts
         for (DisplayVehicle.Part part : parts) {
             part.entity.remove();
         }
         parts.clear();
     }
 
-    public Entity getSeatEntity() {
-        return seatEntity;
-    }
-
     public List<DisplayVehicle.Part> getParts() {
         return parts;
+    }
+
+    public List<Entity> getInteractionEntities() {
+        return interactionEntities;
+    }
+
+    public boolean isVehicleEntity(Entity entity) {
+        // Check if entity is a display part
+        for (DisplayVehicle.Part part : parts) {
+            if (entity.equals(part.entity)) {
+                return true;
+            }
+        }
+        // Check if entity is a BDEngine interaction entity
+        return knownInteractionIds.contains(entity.getUniqueId());
     }
 }
