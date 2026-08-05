@@ -25,16 +25,17 @@ public class VehicleRenderer {
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
 
-    // Seat offset from BDEngine model data: ~1.05625 ~-0.075 ~0.7875
-    private static final double SEAT_OFFSET_X = 1.05625;
-    private static final double SEAT_OFFSET_Y = -0.075;
-    private static final double SEAT_OFFSET_Z = 0.7875;
-    private static final double SEAT_MOUNT_Y_OFFSET = 0.5;
+    // Default seat offset (relative to vehicle root, before yaw rotation).
+    // Tune live in-game with: /vehicle seat <dx> <dy> <dz>
+    private double seatOffsetX = 1.05625;
+    private double seatOffsetY = -0.075;
+    private double seatOffsetZ = 0.7875;
 
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private final List<SeatEntry> seats = new ArrayList<>();
     private final Set<UUID> knownSeatIds = new HashSet<>();
+    private Location lastVehicleLocation;
 
     public VehicleRenderer(VehicleData data) {
         this.data = data;
@@ -52,20 +53,19 @@ public class VehicleRenderer {
         // Spawn visual parts recursively
         spawnNode(rootNode, new Matrix4f(), location);
 
-        // Create seat (invisible armor stand) at seat position
+        // Create seat (invisible small armor stand) at seat position
         createSeat(location);
+        lastVehicleLocation = location.clone();
     }
 
     private void createSeat(Location vehicleLocation) {
-        float yaw = vehicleLocation.getYaw();
-        double[] rotated = rotateOffset(SEAT_OFFSET_X, SEAT_OFFSET_Z, yaw);
-        Location seatLoc = vehicleLocation.clone().add(rotated[0], SEAT_OFFSET_Y, rotated[1]);
-        Location mountLoc = seatLoc.clone().add(0, SEAT_MOUNT_Y_OFFSET, 0);
+        Location mountLoc = computeSeatLocation(vehicleLocation);
 
-        // Invisible armor stand — has a hitbox so PlayerInteractEntityEvent fires
-        // NOT a marker (markers have no hitbox), just invisible
+        // Invisible SMALL armor stand — has a hitbox so PlayerInteractEntityEvent fires,
+        // small size keeps the riding player from floating above the model.
         ArmorStand mount = vehicleLocation.getWorld().spawn(mountLoc, ArmorStand.class, stand -> {
             stand.setVisible(false);
+            stand.setSmall(true);
             stand.setGravity(false);
             stand.setInvulnerable(true);
             stand.setCollidable(false);
@@ -75,11 +75,17 @@ public class VehicleRenderer {
         });
 
         knownSeatIds.add(mount.getUniqueId());
-        seats.add(new SeatEntry(mount, SEAT_OFFSET_X, SEAT_OFFSET_Y, SEAT_OFFSET_Z));
+        seats.add(new SeatEntry(mount));
 
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
-        plugin.getLogger().info("Created seat for vehicle " + data.getId() + " at " + mountLoc);
-        plugin.getLogger().info("  Armor stand UUID: " + mount.getUniqueId());
+        plugin.getLogger().info("Created seat for vehicle " + data.getId() + " at " + mountLoc
+                + " (offset " + seatOffsetX + "," + seatOffsetY + "," + seatOffsetZ + ")");
+    }
+
+    private Location computeSeatLocation(Location vehicleLocation) {
+        float yaw = vehicleLocation.getYaw();
+        double[] rotated = rotateOffset(seatOffsetX, seatOffsetZ, yaw);
+        return vehicleLocation.clone().add(rotated[0], seatOffsetY, rotated[1]);
     }
 
     private double[] rotateOffset(double offsetX, double offsetZ, float yaw) {
@@ -87,6 +93,29 @@ public class VehicleRenderer {
         double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
         double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
         return new double[]{rotatedX, rotatedZ};
+    }
+
+    /**
+     * Nudge the seat offset live (for in-game calibration) and immediately
+     * reposition the seat entity so the change is visible without a restart.
+     */
+    public void adjustSeatOffset(double dx, double dy, double dz) {
+        this.seatOffsetX += dx;
+        this.seatOffsetY += dy;
+        this.seatOffsetZ += dz;
+
+        if (lastVehicleLocation != null) {
+            Location newMountLoc = computeSeatLocation(lastVehicleLocation);
+            for (SeatEntry seat : seats) {
+                if (seat.mountEntity.isValid()) {
+                    seat.mountEntity.teleport(newMountLoc);
+                }
+            }
+        }
+    }
+
+    public String getSeatOffsetString() {
+        return String.format("%.4f, %.4f, %.4f", seatOffsetX, seatOffsetY, seatOffsetZ);
     }
 
     public void enterVehicle(Player player) {
@@ -168,6 +197,7 @@ public class VehicleRenderer {
     public void update(VehicleTransform transform) {
         Location loc = transform.getLocation();
         float yaw = transform.getYaw();
+        lastVehicleLocation = loc.clone();
 
         // Teleport all display parts to vehicle position
         for (DisplayVehicle.Part part : parts) {
@@ -179,11 +209,10 @@ public class VehicleRenderer {
         }
 
         // Teleport seat (armor stand) to rotated seat position
+        Location mountLoc = computeSeatLocation(loc);
+        mountLoc.setYaw(yaw);
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
-                double[] rotated = rotateOffset(seat.offsetX, seat.offsetZ, yaw);
-                Location mountLoc = loc.clone().add(rotated[0], seat.offsetY + SEAT_MOUNT_Y_OFFSET, rotated[1]);
-                mountLoc.setYaw(yaw);
                 seat.mountEntity.teleport(mountLoc);
             }
         }
@@ -224,13 +253,9 @@ public class VehicleRenderer {
 
     private static class SeatEntry {
         final Entity mountEntity;
-        final double offsetX, offsetY, offsetZ;
 
-        SeatEntry(Entity mountEntity, double offsetX, double offsetY, double offsetZ) {
+        SeatEntry(Entity mountEntity) {
             this.mountEntity = mountEntity;
-            this.offsetX = offsetX;
-            this.offsetY = offsetY;
-            this.offsetZ = offsetZ;
         }
     }
 }
