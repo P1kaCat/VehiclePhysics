@@ -3,11 +3,12 @@ package fr.pikacat.vehiclephysics.vehicle;
 import fr.pikacat.vehiclephysics.VehiclePhysics;
 import fr.pikacat.vehiclephysics.managers.ModelManager;
 import fr.pikacat.vehiclephysics.rendering.DisplayVehicle;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.util.Transformation;
 import org.joml.Matrix4f;
@@ -24,11 +25,18 @@ public class VehicleRenderer {
 
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
-    private static final double INTERACTION_SCAN_RADIUS = 10.0;
+
+    // Seat offset from BDEngine model data: ~1.05625 ~-0.075 ~0.7875
+    private static final double SEAT_OFFSET_X = 1.05625;
+    private static final double SEAT_OFFSET_Y = -0.075;
+    private static final double SEAT_OFFSET_Z = 0.7875;
+    private static final float INTERACTION_WIDTH = 0.75f;
+    private static final float INTERACTION_HEIGHT = 0.0625f;
+    private static final double SEAT_MOUNT_Y_OFFSET = 0.5;
 
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
-    private final List<Entity> interactionEntities = new ArrayList<>();
+    private final List<SeatEntry> seats = new ArrayList<>();
     private final Set<UUID> knownInteractionIds = new HashSet<>();
 
     public VehicleRenderer(VehicleData data) {
@@ -47,34 +55,64 @@ public class VehicleRenderer {
         // Spawn visual parts recursively
         spawnNode(rootNode, new Matrix4f(), location);
 
-        // Run BDEngine interactive function (creates seat/interaction entities)
-        runInteractiveFunction("create");
-
-        // After the function runs (next tick), find and track the new Interaction entities
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            trackInteractionEntities(location);
-        }, 2L); // 2 ticks delay to let the function execute
+        // Create seat interaction + mount entity directly (no datapack needed)
+        createSeat(location);
     }
 
-    private void runInteractiveFunction(String action) {
+    private void createSeat(Location vehicleLocation) {
+        float yaw = vehicleLocation.getYaw();
+        double[] rotated = rotateOffset(SEAT_OFFSET_X, SEAT_OFFSET_Z, yaw);
+        Location seatLoc = vehicleLocation.clone().add(rotated[0], SEAT_OFFSET_Y, rotated[1]);
+
+        // Create Interaction entity for click detection
+        Interaction interaction = vehicleLocation.getWorld().spawn(seatLoc, Interaction.class, entity -> {
+            entity.setInteractionWidth(INTERACTION_WIDTH);
+            entity.setInteractionHeight(INTERACTION_HEIGHT);
+            entity.setResponsive(true);
+            entity.setPersistent(false);
+        });
+        knownInteractionIds.add(interaction.getUniqueId());
+
+        // Create invisible armor stand as seat for player to ride on
+        Location mountLoc = seatLoc.clone().add(0, SEAT_MOUNT_Y_OFFSET, 0);
+        ArmorStand mount = vehicleLocation.getWorld().spawn(mountLoc, ArmorStand.class, stand -> {
+            stand.setVisible(false);
+            stand.setMarker(true);
+            stand.setGravity(false);
+            stand.setInvulnerable(true);
+            stand.setCollidable(false);
+            stand.setPersistent(false);
+        });
+
+        seats.add(new SeatEntry(interaction, mount, SEAT_OFFSET_X, SEAT_OFFSET_Y, SEAT_OFFSET_Z));
+
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
-        // Function name format: <model>full:_/<action>_interactive
-        String functionName = data.getId() + "full:_/" + action + "_interactive";
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "function " + functionName);
-        plugin.getLogger().info("Ran function: " + functionName);
+        plugin.getLogger().info("Created seat for vehicle " + data.getId() + " at " + seatLoc);
     }
 
-    private void trackInteractionEntities(Location vehicleLocation) {
-        // Find all Interaction entities near the vehicle that we don't already know about
-        for (Entity entity : vehicleLocation.getWorld().getNearbyEntities(vehicleLocation, INTERACTION_SCAN_RADIUS, INTERACTION_SCAN_RADIUS, INTERACTION_SCAN_RADIUS)) {
-            if (entity instanceof Interaction && !knownInteractionIds.contains(entity.getUniqueId())) {
-                interactionEntities.add(entity);
-                knownInteractionIds.add(entity.getUniqueId());
+    private double[] rotateOffset(double offsetX, double offsetZ, float yaw) {
+        double rad = Math.toRadians(yaw);
+        double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
+        double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
+        return new double[]{rotatedX, rotatedZ};
+    }
+
+    public void enterVehicle(Player player) {
+        for (SeatEntry seat : seats) {
+            if (seat.mountEntity.isValid() && seat.mountEntity.getPassengers().isEmpty()) {
+                seat.mountEntity.addPassenger(player);
+                return;
             }
         }
+    }
 
-        VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
-        plugin.getLogger().info("Found " + interactionEntities.size() + " interaction entities for vehicle " + data.getId());
+    public void exitVehicle(Player player) {
+        for (SeatEntry seat : seats) {
+            if (seat.mountEntity.isValid() && seat.mountEntity.getPassengers().contains(player)) {
+                seat.mountEntity.removePassenger(player);
+                return;
+            }
+        }
     }
 
     private void spawnNode(ModelManager.ModelNode node, Matrix4f parentMatrix, Location location) {
@@ -88,6 +126,7 @@ public class VehicleRenderer {
         if (node.isItemDisplay && node.getItemStack() != null) {
             ItemDisplay itemDisplay = location.getWorld().spawn(location, ItemDisplay.class, display -> {
                 display.setItemStack(node.getItemStack());
+                display.setPersistent(false);
 
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
@@ -106,6 +145,7 @@ public class VehicleRenderer {
         } else if (node.isTextDisplay && node.options != null && node.options.text != null) {
             TextDisplay textDisplay = location.getWorld().spawn(location, TextDisplay.class, display -> {
                 display.setText(node.options.text);
+                display.setPersistent(false);
 
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
@@ -143,27 +183,36 @@ public class VehicleRenderer {
             }
         }
 
-        // Teleport interaction entities (BDEngine seat) with the vehicle
-        for (Entity interaction : interactionEntities) {
-            if (interaction.isValid()) {
-                Location intLoc = loc.clone();
-                intLoc.setYaw(yaw);
-                interaction.teleport(intLoc);
+        // Teleport seat entities to rotated seat position
+        for (SeatEntry seat : seats) {
+            double[] rotated = rotateOffset(seat.offsetX, seat.offsetZ, yaw);
+            Location seatLoc = loc.clone().add(rotated[0], seat.offsetY, rotated[1]);
+            seatLoc.setYaw(yaw);
+
+            if (seat.interaction.isValid()) {
+                seat.interaction.teleport(seatLoc);
+            }
+            if (seat.mountEntity.isValid()) {
+                Location mountLoc = seatLoc.clone().add(0, SEAT_MOUNT_Y_OFFSET, 0);
+                seat.mountEntity.teleport(mountLoc);
             }
         }
     }
 
     public void remove() {
-        // Run BDEngine delete function to remove interaction/seat entities
-        runInteractiveFunction("delete");
-
-        // Remove interaction entities we tracked
-        for (Entity interaction : interactionEntities) {
-            if (interaction.isValid()) {
-                interaction.remove();
+        // Dismount all passengers and remove seat entities
+        for (SeatEntry seat : seats) {
+            if (seat.mountEntity.isValid()) {
+                for (Entity passenger : new ArrayList<>(seat.mountEntity.getPassengers())) {
+                    seat.mountEntity.removePassenger(passenger);
+                }
+                seat.mountEntity.remove();
+            }
+            if (seat.interaction.isValid()) {
+                seat.interaction.remove();
             }
         }
-        interactionEntities.clear();
+        seats.clear();
         knownInteractionIds.clear();
 
         // Remove visual display parts
@@ -177,18 +226,26 @@ public class VehicleRenderer {
         return parts;
     }
 
-    public List<Entity> getInteractionEntities() {
-        return interactionEntities;
-    }
-
     public boolean isVehicleEntity(Entity entity) {
-        // Check if entity is a display part
         for (DisplayVehicle.Part part : parts) {
             if (entity.equals(part.entity)) {
                 return true;
             }
         }
-        // Check if entity is a BDEngine interaction entity
         return knownInteractionIds.contains(entity.getUniqueId());
+    }
+
+    private static class SeatEntry {
+        final Entity interaction;
+        final Entity mountEntity;
+        final double offsetX, offsetY, offsetZ;
+
+        SeatEntry(Entity interaction, Entity mountEntity, double offsetX, double offsetY, double offsetZ) {
+            this.interaction = interaction;
+            this.mountEntity = mountEntity;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+            this.offsetZ = offsetZ;
+        }
     }
 }
