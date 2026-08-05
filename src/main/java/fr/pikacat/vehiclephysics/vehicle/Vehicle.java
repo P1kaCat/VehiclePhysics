@@ -10,8 +10,9 @@ public class Vehicle {
     private final VehicleTransform transform;
     private final VehicleController controller;
     private VehicleRenderer renderer;
-    
+
     private UUID driverId;
+    private double speed;
     private final PlayerInput playerInput = new PlayerInput();
 
     public Vehicle(VehicleData data, VehicleTransform transform) {
@@ -52,6 +53,14 @@ public class Vehicle {
 
     public void setDriverId(UUID driverId) {
         this.driverId = driverId;
+    }
+
+    public double getSpeed() {
+        return speed;
+    }
+
+    public void setSpeed(double speed) {
+        this.speed = speed;
     }
 
     public PlayerInput getPlayerInput() {

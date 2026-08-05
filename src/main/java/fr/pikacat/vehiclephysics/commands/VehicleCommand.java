@@ -39,7 +39,7 @@ public class VehicleCommand implements CommandExecutor {
         }
 
         if (args[0].equalsIgnoreCase("spawn")) {
-            String vehicleId = "test";
+            String vehicleId = "supra";
             if (args.length >= 2) {
                 vehicleId = args[1];
             }
@@ -47,7 +47,10 @@ public class VehicleCommand implements CommandExecutor {
             Location location = player.getLocation();
             VehicleData data = new VehicleData(
                     vehicleId,
-                    "models/" + vehicleId + ".bdengine"
+                    "models/" + vehicleId + ".bdengine",
+                    1.5,
+                    0.05,
+                    5
             );
 
             VehicleTransform transform = new VehicleTransform(location.clone());
@@ -64,7 +67,7 @@ public class VehicleCommand implements CommandExecutor {
 
             vehicleManager.addVehicle(vehicle);
 
-            player.sendMessage("Vehicle created: " + vehicleId);
+            player.sendMessage("Vehicle spawned: " + vehicleId);
             return true;
         }
 
@@ -77,7 +80,7 @@ public class VehicleCommand implements CommandExecutor {
             return true;
         }
 
-        player.sendMessage("Unknown subcommand.");
+        player.sendMessage("Unknown subcommand. Usage: /vehicle spawn <id> OR /vehicle remove");
         return true;
     }
 }

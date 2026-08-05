@@ -6,59 +6,56 @@ import org.bukkit.util.Vector;
 
 public class VehicleController {
 
-
-    private final double speed = 0.3;
-
-
     public void update(PlayerInput input, Vehicle vehicle) {
+        VehicleData data = vehicle.getData();
+        double speed = vehicle.getSpeed();
 
-
-        if(input == null) {
+        // No driver - decelerate gradually
+        if (input == null || vehicle.getDriverId() == null) {
+            speed = decelerate(speed, data.getAcceleration());
+            vehicle.setSpeed(speed);
+            applyMovement(vehicle);
             return;
         }
 
-
-        Vector direction =
-                vehicle.getTransform()
-                .getLocation()
-                .getDirection();
-
-
-        if(input.isForward()) {
-
-            vehicle.getTransform()
-                    .move(direction.multiply(speed));
-
+        // Accelerate / decelerate based on input
+        if (input.isForward()) {
+            speed = Math.min(speed + data.getAcceleration(), data.getMaxSpeed());
+        } else if (input.isBackward()) {
+            speed = Math.max(speed - data.getAcceleration(), -data.getMaxSpeed() * 0.5);
+        } else {
+            speed = decelerate(speed, data.getAcceleration());
         }
 
+        vehicle.setSpeed(speed);
 
-        if(input.isBackward()) {
-
-            vehicle.getTransform()
-                    .move(direction.multiply(-speed));
-
+        // Rotation - arcade style, turn even at low speed
+        if (input.isLeft()) {
+            vehicle.getTransform().rotate((float) -data.getRotationSpeed());
+        }
+        if (input.isRight()) {
+            vehicle.getTransform().rotate((float) data.getRotationSpeed());
         }
 
+        applyMovement(vehicle);
+    }
 
-        float yaw =
-                vehicle.getTransform()
-                .getYaw();
-
-
-        if(input.isLeft()) {
-
-            vehicle.getTransform()
-                    .setYaw(yaw - 5);
-
+    private void applyMovement(Vehicle vehicle) {
+        double speed = vehicle.getSpeed();
+        if (Math.abs(speed) < 0.001) {
+            return;
         }
 
+        Vector direction = vehicle.getTransform().getLocation().getDirection();
+        vehicle.getTransform().move(direction.multiply(speed));
+    }
 
-        if(input.isRight()) {
-
-            vehicle.getTransform()
-                    .setYaw(yaw + 5);
-
+    private double decelerate(double speed, double acceleration) {
+        if (speed > 0) {
+            return Math.max(0, speed - acceleration);
+        } else if (speed < 0) {
+            return Math.min(0, speed + acceleration);
         }
-
+        return 0;
     }
 }
