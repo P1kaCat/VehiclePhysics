@@ -40,15 +40,20 @@ public class InputListener implements Listener {
         Player player = event.getPlayer();
         org.bukkit.entity.Entity clicked = event.getRightClicked();
 
+        plugin.getLogger().info("PlayerInteractEntityEvent: " + player.getName() + " clicked " + clicked.getType() + " (UUID: " + clicked.getUniqueId() + ")");
+
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (vehicle.getRenderer() == null) continue;
 
             if (vehicle.getRenderer().isVehicleEntity(clicked)) {
+                plugin.getLogger().info("  -> Entity belongs to vehicle " + vehicle.getData().getId());
                 if (vehicle.getDriver() == null) {
                     vehicle.setDriver(player);
                     vehicle.getRenderer().enterVehicle(player);
                     player.sendMessage("You are now driving this vehicle.");
                     event.setCancelled(true);
+                } else {
+                    plugin.getLogger().info("  -> Vehicle already has a driver: " + vehicle.getDriver().getName());
                 }
                 break;
             }
