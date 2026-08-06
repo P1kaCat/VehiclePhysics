@@ -137,7 +137,7 @@ public class ModelManager {
                     ModelNode[] rootNodes = gson.fromJson(jsonText, ModelNode[].class);
                     if (rootNodes != null && rootNodes.length > 0) {
                         // Extract seats from the model tree
-                        extractSeats(rootNodes[0], new float[16], extractedSeats);
+                        float[] identity = new float[16]; identity[0] = 1; identity[5] = 1; identity[10] = 1; identity[15] = 1; extractSeats(rootNodes[0], identity, extractedSeats);
 
                         if (!extractedSeats.isEmpty()) {
                             plugin.getLogger().info("Found " + extractedSeats.size() + " seat(s) in model " + modelName);
