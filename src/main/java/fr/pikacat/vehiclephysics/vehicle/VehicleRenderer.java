@@ -32,7 +32,11 @@ public class VehicleRenderer {
     // Vanilla Minecraft mounts passengers above a small ArmorStand's feet, not at its feet.
     // This is a fixed engine geometry correction (not per-vehicle calibration) so the
     // player's feet land exactly at the BDEngine seat's bottom position.
-    private static final double SMALL_ARMOR_STAND_MOUNT_HEIGHT = 0.9;
+    private static final double SMALL_ARMOR_STAND_MOUNT_HEIGHT = 1.0;
+
+    // Small backward shift so the player sits fully in the seat instead of
+    // leaning against the front edge of the interaction hitbox.
+    private static final double SEAT_BACKWARD_SHIFT = 0.15;
 
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
@@ -99,8 +103,10 @@ public class VehicleRenderer {
     private Location computeSeatLocation(Location vehicleLocation, double offsetX, double offsetY, double offsetZ) {
         float yaw = vehicleLocation.getYaw();
         double rad = Math.toRadians(yaw);
-        double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
-        double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
+        // Player faces -Z locally (after the 180° yaw flip), so +Z is "backward" for them.
+        double adjustedOffsetZ = offsetZ + SEAT_BACKWARD_SHIFT;
+        double rotatedX = offsetX * Math.cos(rad) - adjustedOffsetZ * Math.sin(rad);
+        double rotatedZ = offsetX * Math.sin(rad) + adjustedOffsetZ * Math.cos(rad);
         // Subtract the vanilla mount height so the player's feet (not the ArmorStand's feet)
         // land exactly at the BDEngine seat's bottom position.
         double adjustedY = offsetY - SMALL_ARMOR_STAND_MOUNT_HEIGHT;
