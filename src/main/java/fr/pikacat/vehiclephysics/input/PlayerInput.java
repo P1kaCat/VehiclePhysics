@@ -6,7 +6,6 @@ public class PlayerInput {
     private boolean backward;
     private boolean left;
     private boolean right;
-    private boolean sneak;
 
     public boolean isForward() { return forward; }
     public void setForward(boolean forward) { this.forward = forward; }
@@ -16,6 +15,4 @@ public class PlayerInput {
     public void setLeft(boolean left) { this.left = left; }
     public boolean isRight() { return right; }
     public void setRight(boolean right) { this.right = right; }
-    public boolean isSneak() { return sneak; }
-    public void setSneak(boolean sneak) { this.sneak = sneak; }
 }
