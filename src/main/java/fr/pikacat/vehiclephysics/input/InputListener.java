@@ -8,6 +8,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInputEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.entity.EntityDismountEvent;
 
 public class InputListener implements Listener {
 
@@ -20,27 +21,14 @@ public class InputListener implements Listener {
     @EventHandler
     public void onPlayerInput(PlayerInputEvent event) {
         Player player = event.getPlayer();
-
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (player.equals(vehicle.getDriver())) {
                 org.bukkit.Input input = event.getInput();
                 PlayerInput pi = vehicle.getPlayerInput();
-
-                // Dismount on sneak (Shift)
-                if (input.isSneak()) {
-                    vehicle.setDriver(null);
-                    vehicle.getRenderer().exitVehicle(player);
-                    resetInputs(pi);
-                    // Don't cancel — let the sneak through so the player can crouch
-                    break;
-                }
-
                 pi.setForward(input.isForward());
                 pi.setBackward(input.isBackward());
                 pi.setLeft(input.isLeft());
                 pi.setRight(input.isRight());
-                pi.setSneak(input.isSneak());
-
                 break;
             }
         }
@@ -50,16 +38,31 @@ public class InputListener implements Listener {
     public void onInteractEntity(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();
         org.bukkit.entity.Entity clicked = event.getRightClicked();
-
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (vehicle.getRenderer() == null) continue;
-
             if (vehicle.getRenderer().isVehicleEntity(clicked)) {
                 if (vehicle.getDriver() == null) {
                     vehicle.setDriver(player);
                     vehicle.getRenderer().enterVehicle(player);
                     player.sendMessage("You are now driving this vehicle. Press Shift to exit.");
+                    event.setCancelled(true);
                 }
+                break;
+            }
+        }
+    }
+
+    @EventHandler
+    public void onDismount(EntityDismountEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
+            if (player.equals(vehicle.getDriver())) {
+                vehicle.setDriver(null);
+                PlayerInput pi = vehicle.getPlayerInput();
+                pi.setForward(false);
+                pi.setBackward(false);
+                pi.setLeft(false);
+                pi.setRight(false);
                 break;
             }
         }
@@ -68,22 +71,17 @@ public class InputListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-
         for (Vehicle vehicle : plugin.getVehicleManager().getVehicles()) {
             if (player.equals(vehicle.getDriver())) {
                 vehicle.setDriver(null);
                 vehicle.getRenderer().exitVehicle(player);
-                resetInputs(vehicle.getPlayerInput());
+                PlayerInput pi = vehicle.getPlayerInput();
+                pi.setForward(false);
+                pi.setBackward(false);
+                pi.setLeft(false);
+                pi.setRight(false);
                 break;
             }
         }
-    }
-
-    private void resetInputs(PlayerInput pi) {
-        pi.setForward(false);
-        pi.setBackward(false);
-        pi.setLeft(false);
-        pi.setRight(false);
-        pi.setSneak(false);
     }
 }

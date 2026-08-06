@@ -10,15 +10,14 @@ import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.util.Transformation;
+import org.bukkit.util.Vector;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,25 +25,14 @@ public class VehicleRenderer {
 
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
-
-    // BDEngine models face -Z at yaw=0, but Minecraft faces +Z.
-    // Add 180° to the seat yaw so the player faces the car's front.
     private static final float SEAT_YAW_OFFSET = 180.0f;
-
-    // Vanilla Minecraft mounts passengers above a small ArmorStand's feet, not at its feet.
-    // This is a fixed engine geometry correction (not per-vehicle calibration) so the
-    // player's feet land exactly at the BDEngine seat's bottom position.
     private static final double SMALL_ARMOR_STAND_MOUNT_HEIGHT = 1.0;
-
-    // Small backward shift so the player sits fully in the seat instead of
-    // leaning against the front edge of the interaction hitbox.
     private static final double SEAT_BACKWARD_SHIFT = 0.15;
 
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private final List<SeatEntry> seats = new ArrayList<>();
     private final Set<UUID> knownSeatIds = new HashSet<>();
-    private final Map<Player, SeatEntry> seatedPlayers = new HashMap<>();
     private Location lastVehicleLocation;
 
     public VehicleRenderer(VehicleData data) {
@@ -54,18 +42,12 @@ public class VehicleRenderer {
     public void spawn(Location location) {
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
         ModelManager.ModelNode rootNode = plugin.getVehicleManager().getModelManager().getModel(data.getId());
-
         if (rootNode == null) {
             plugin.getLogger().warning("Failed to spawn vehicle: Model not found for ID " + data.getId());
             return;
         }
-
-        // Spawn visual parts recursively
         spawnNode(rootNode, new Matrix4f(), location);
-
-        // Load seat positions from BDEngine model
         List<ModelManager.SeatData> modelSeats = plugin.getVehicleManager().getModelManager().getSeats(data.getId());
-
         if (modelSeats != null && !modelSeats.isEmpty()) {
             plugin.getLogger().info("Spawning " + modelSeats.size() + " seat(s) from BDEngine model for " + data.getId());
             for (ModelManager.SeatData seatData : modelSeats) {
@@ -75,16 +57,11 @@ public class VehicleRenderer {
             plugin.getLogger().warning("No seats found in BDEngine model '" + data.getId()
                     + "'. Add seats in BDEngine before exporting the model.");
         }
-
         lastVehicleLocation = location.clone();
     }
 
     private void createSeat(Location vehicleLocation, double offsetX, double offsetY, double offsetZ, String seatName) {
         Location mountLoc = computeSeatLocation(vehicleLocation, offsetX, offsetY, offsetZ);
-
-        // Invisible SMALL armor stand — used for click detection to enter the vehicle.
-        // The player is no longer mounted as a passenger (causes client-side lag).
-        // Instead, the player is teleported directly each tick for smooth following.
         ArmorStand mount = vehicleLocation.getWorld().spawn(mountLoc, ArmorStand.class, stand -> {
             stand.setVisible(false);
             stand.setSmall(true);
@@ -95,10 +72,8 @@ public class VehicleRenderer {
             stand.setCanPickupItems(false);
             stand.setRemoveWhenFarAway(false);
         });
-
         knownSeatIds.add(mount.getUniqueId());
         seats.add(new SeatEntry(mount, offsetX, offsetY, offsetZ, seatName));
-
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
         plugin.getLogger().info("Created seat '" + seatName + "' for vehicle " + data.getId() + " at " + mountLoc
                 + " (offset " + offsetX + "," + offsetY + "," + offsetZ + ")");
@@ -107,15 +82,11 @@ public class VehicleRenderer {
     private Location computeSeatLocation(Location vehicleLocation, double offsetX, double offsetY, double offsetZ) {
         float yaw = vehicleLocation.getYaw();
         double rad = Math.toRadians(yaw);
-        // Player faces -Z locally (after the 180° yaw flip), so +Z is "backward" for them.
         double adjustedOffsetZ = offsetZ + SEAT_BACKWARD_SHIFT;
         double rotatedX = offsetX * Math.cos(rad) - adjustedOffsetZ * Math.sin(rad);
         double rotatedZ = offsetX * Math.sin(rad) + adjustedOffsetZ * Math.cos(rad);
-        // Subtract the vanilla mount height so the player's feet (not the ArmorStand's feet)
-        // land exactly at the BDEngine seat's bottom position.
         double adjustedY = offsetY - SMALL_ARMOR_STAND_MOUNT_HEIGHT;
         Location loc = vehicleLocation.clone().add(rotatedX, adjustedY, rotatedZ);
-        // Rotate seat 180° so the player faces the car's front (BDEngine faces -Z, Minecraft faces +Z)
         loc.setYaw(yaw + SEAT_YAW_OFFSET);
         return loc;
     }
@@ -123,9 +94,9 @@ public class VehicleRenderer {
     public void enterVehicle(Player player) {
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
         for (SeatEntry seat : seats) {
-            if (!seatedPlayers.containsValue(seat)) {
-                plugin.getLogger().info("Seatting player " + player.getName() + " on seat '" + seat.name + "'");
-                seatedPlayers.put(player, seat);
+            if (seat.mountEntity.isValid() && seat.mountEntity.getPassengers().isEmpty()) {
+                plugin.getLogger().info("Mounting player " + player.getName() + " on seat '" + seat.name + "'");
+                seat.mountEntity.addPassenger(player);
                 return;
             }
         }
@@ -133,16 +104,11 @@ public class VehicleRenderer {
     }
 
     public void exitVehicle(Player player) {
-        if (seatedPlayers.containsKey(player)) {
-            // Teleport player next to the vehicle so they don't get stuck in the model
-            SeatEntry seat = seatedPlayers.get(player);
-            if (seat.mountEntity.isValid()) {
-                Location exitLoc = seat.mountEntity.getLocation().clone().add(1, 0, 0);
-                exitLoc.setYaw(player.getLocation().getYaw());
-                exitLoc.setPitch(player.getLocation().getPitch());
-                player.teleport(exitLoc);
+        for (SeatEntry seat : seats) {
+            if (seat.mountEntity.isValid() && seat.mountEntity.getPassengers().contains(player)) {
+                seat.mountEntity.removePassenger(player);
+                return;
             }
-            seatedPlayers.remove(player);
         }
     }
 
@@ -151,26 +117,20 @@ public class VehicleRenderer {
         if (node.transforms != null && node.transforms.length == 16) {
             localMatrix.set(node.transforms).transpose();
         }
-
         Matrix4f combinedMatrix = new Matrix4f(parentMatrix).mul(localMatrix);
-
-        // Skip interaction/seat nodes — they're not visual parts
         if (node.isInteraction) {
             return;
         }
-
         if (node.isItemDisplay && node.getItemStack() != null) {
             ItemDisplay itemDisplay = location.getWorld().spawn(location, ItemDisplay.class, display -> {
                 display.setItemStack(node.getItemStack());
                 display.setPersistent(false);
-
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
                 Vector3f scale = new Vector3f();
                 combinedMatrix.getTranslation(translation);
                 combinedMatrix.getUnnormalizedRotation(rotation);
                 combinedMatrix.getScale(scale);
-
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
                 display.setInterpolationDuration(INTERPOLATION_DURATION);
@@ -182,14 +142,12 @@ public class VehicleRenderer {
             TextDisplay textDisplay = location.getWorld().spawn(location, TextDisplay.class, display -> {
                 display.setText(node.options.text);
                 display.setPersistent(false);
-
                 Vector3f translation = new Vector3f();
                 Quaternionf rotation = new Quaternionf();
                 Vector3f scale = new Vector3f();
                 combinedMatrix.getTranslation(translation);
                 combinedMatrix.getUnnormalizedRotation(rotation);
                 combinedMatrix.getScale(scale);
-
                 display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
                 display.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
                 display.setInterpolationDuration(INTERPOLATION_DURATION);
@@ -198,7 +156,6 @@ public class VehicleRenderer {
             });
             parts.add(new DisplayVehicle.Part(textDisplay, combinedMatrix));
         }
-
         if (node.children != null) {
             for (ModelManager.ModelNode child : node.children) {
                 spawnNode(child, combinedMatrix, location);
@@ -220,47 +177,34 @@ public class VehicleRenderer {
             }
         }
 
-        // Teleport each seat ArmorStand to its rotated position (for click detection)
+        // Move seat ArmorStands using velocity instead of teleport.
+        // This lets the client interpolate smoothly so passengers follow without lag.
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
-                Location mountLoc = computeSeatLocation(loc, seat.offsetX, seat.offsetY, seat.offsetZ);
-                seat.mountEntity.teleport(mountLoc);
+                Location targetLoc = computeSeatLocation(loc, seat.offsetX, seat.offsetY, seat.offsetZ);
+                Location currentLoc = seat.mountEntity.getLocation();
+                Vector velocity = new Vector(
+                    targetLoc.getX() - currentLoc.getX(),
+                    targetLoc.getY() - currentLoc.getY(),
+                    targetLoc.getZ() - currentLoc.getZ()
+                );
+                seat.mountEntity.setVelocity(velocity);
+                seat.mountEntity.setRotation(targetLoc.getYaw(), 0);
             }
-        }
-
-        // Teleport seated players directly — avoids passenger lag/interpolation
-        for (Map.Entry<Player, SeatEntry> entry : new HashMap<>(seatedPlayers).entrySet()) {
-            Player player = entry.getKey();
-            SeatEntry seat = entry.getValue();
-            if (!player.isOnline()) {
-                seatedPlayers.remove(player);
-                continue;
-            }
-            Location seatLoc = computeSeatLocation(loc, seat.offsetX, seat.offsetY, seat.offsetZ);
-            // Keep the player's current yaw/pitch so they can look around freely
-            seatLoc.setYaw(player.getLocation().getYaw());
-            seatLoc.setPitch(player.getLocation().getPitch());
-            player.teleport(seatLoc);
         }
     }
 
     public void remove() {
-        // Remove seated players
-        for (Player player : new ArrayList<>(seatedPlayers.keySet())) {
-            exitVehicle(player);
-        }
-        seatedPlayers.clear();
-
-        // Remove seat ArmorStands
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
+                for (Entity passenger : new ArrayList<>(seat.mountEntity.getPassengers())) {
+                    seat.mountEntity.removePassenger(passenger);
+                }
                 seat.mountEntity.remove();
             }
         }
         seats.clear();
         knownSeatIds.clear();
-
-        // Remove visual display parts
         for (DisplayVehicle.Part part : parts) {
             part.entity.remove();
         }
