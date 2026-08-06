@@ -54,9 +54,10 @@ public class VehicleController {
             return;
         }
 
-        // Direction from vehicle transform yaw
+        // BDEngine models face -Z at yaw=0, but Bukkit's getDirection() returns +Z.
+        // Negate the forward vector so the vehicle moves in the model's facing direction.
         Vector forward = transform.getLocation().getDirection();
-        transform.move(forward.multiply(speed));
+        transform.move(forward.multiply(-speed));
     }
 
     private void applyGravity(VehicleTransform transform) {
