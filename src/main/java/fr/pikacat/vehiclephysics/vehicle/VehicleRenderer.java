@@ -25,12 +25,6 @@ public class VehicleRenderer {
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
 
-    // Default seat offset (relative to vehicle root, before yaw rotation).
-    // Tune live in-game with: /vehicle seat <dx> <dy> <dz>
-    private double seatOffsetX = 1.05625;
-    private double seatOffsetY = -0.075;
-    private double seatOffsetZ = 0.7875;
-
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private final List<SeatEntry> seats = new ArrayList<>();
@@ -53,13 +47,24 @@ public class VehicleRenderer {
         // Spawn visual parts recursively
         spawnNode(rootNode, new Matrix4f(), location);
 
-        // Create seat (invisible small armor stand) at seat position
-        createSeat(location);
+        // Load seat positions from BDEngine model
+        List<ModelManager.SeatData> modelSeats = plugin.getVehicleManager().getModelManager().getSeats(data.getId());
+
+        if (modelSeats != null && !modelSeats.isEmpty()) {
+            plugin.getLogger().info("Spawning " + modelSeats.size() + " seat(s) from BDEngine model for " + data.getId());
+            for (ModelManager.SeatData seatData : modelSeats) {
+                createSeat(location, seatData.offsetX, seatData.offsetY, seatData.offsetZ, seatData.name);
+            }
+        } else {
+            plugin.getLogger().warning("No seats found in BDEngine model '" + data.getId()
+                    + "'. Add seats in BDEngine before exporting the model.");
+        }
+
         lastVehicleLocation = location.clone();
     }
 
-    private void createSeat(Location vehicleLocation) {
-        Location mountLoc = computeSeatLocation(vehicleLocation);
+    private void createSeat(Location vehicleLocation, double offsetX, double offsetY, double offsetZ, String seatName) {
+        Location mountLoc = computeSeatLocation(vehicleLocation, offsetX, offsetY, offsetZ);
 
         // Invisible SMALL armor stand — has a hitbox so PlayerInteractEntityEvent fires,
         // small size keeps the riding player from floating above the model.
@@ -75,54 +80,26 @@ public class VehicleRenderer {
         });
 
         knownSeatIds.add(mount.getUniqueId());
-        seats.add(new SeatEntry(mount));
+        seats.add(new SeatEntry(mount, offsetX, offsetY, offsetZ, seatName));
 
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
-        plugin.getLogger().info("Created seat for vehicle " + data.getId() + " at " + mountLoc
-                + " (offset " + seatOffsetX + "," + seatOffsetY + "," + seatOffsetZ + ")");
+        plugin.getLogger().info("Created seat '" + seatName + "' for vehicle " + data.getId() + " at " + mountLoc
+                + " (offset " + offsetX + "," + offsetY + "," + offsetZ + ")");
     }
 
-    private Location computeSeatLocation(Location vehicleLocation) {
+    private Location computeSeatLocation(Location vehicleLocation, double offsetX, double offsetY, double offsetZ) {
         float yaw = vehicleLocation.getYaw();
-        double[] rotated = rotateOffset(seatOffsetX, seatOffsetZ, yaw);
-        return vehicleLocation.clone().add(rotated[0], seatOffsetY, rotated[1]);
-    }
-
-    private double[] rotateOffset(double offsetX, double offsetZ, float yaw) {
         double rad = Math.toRadians(yaw);
         double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
         double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
-        return new double[]{rotatedX, rotatedZ};
-    }
-
-    /**
-     * Nudge the seat offset live (for in-game calibration) and immediately
-     * reposition the seat entity so the change is visible without a restart.
-     */
-    public void adjustSeatOffset(double dx, double dy, double dz) {
-        this.seatOffsetX += dx;
-        this.seatOffsetY += dy;
-        this.seatOffsetZ += dz;
-
-        if (lastVehicleLocation != null) {
-            Location newMountLoc = computeSeatLocation(lastVehicleLocation);
-            for (SeatEntry seat : seats) {
-                if (seat.mountEntity.isValid()) {
-                    seat.mountEntity.teleport(newMountLoc);
-                }
-            }
-        }
-    }
-
-    public String getSeatOffsetString() {
-        return String.format("%.4f, %.4f, %.4f", seatOffsetX, seatOffsetY, seatOffsetZ);
+        return vehicleLocation.clone().add(rotatedX, offsetY, rotatedZ);
     }
 
     public void enterVehicle(Player player) {
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid() && seat.mountEntity.getPassengers().isEmpty()) {
-                plugin.getLogger().info("Mounting player " + player.getName() + " on seat " + seat.mountEntity.getUniqueId());
+                plugin.getLogger().info("Mounting player " + player.getName() + " on seat '" + seat.name + "'");
                 seat.mountEntity.addPassenger(player);
                 return;
             }
@@ -146,6 +123,11 @@ public class VehicleRenderer {
         }
 
         Matrix4f combinedMatrix = new Matrix4f(parentMatrix).mul(localMatrix);
+
+        // Skip interaction/seat nodes — they're not visual parts
+        if (node.isInteraction) {
+            return;
+        }
 
         if (node.isItemDisplay && node.getItemStack() != null) {
             ItemDisplay itemDisplay = location.getWorld().spawn(location, ItemDisplay.class, display -> {
@@ -208,11 +190,11 @@ public class VehicleRenderer {
             }
         }
 
-        // Teleport seat (armor stand) to rotated seat position
-        Location mountLoc = computeSeatLocation(loc);
-        mountLoc.setYaw(yaw);
+        // Teleport each seat to its rotated position
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
+                Location mountLoc = computeSeatLocation(loc, seat.offsetX, seat.offsetY, seat.offsetZ);
+                mountLoc.setYaw(yaw);
                 seat.mountEntity.teleport(mountLoc);
             }
         }
@@ -251,11 +233,23 @@ public class VehicleRenderer {
         return knownSeatIds.contains(entity.getUniqueId());
     }
 
+    public int getSeatCount() {
+        return seats.size();
+    }
+
     private static class SeatEntry {
         final Entity mountEntity;
+        final double offsetX;
+        final double offsetY;
+        final double offsetZ;
+        final String name;
 
-        SeatEntry(Entity mountEntity) {
+        SeatEntry(Entity mountEntity, double offsetX, double offsetY, double offsetZ, String name) {
             this.mountEntity = mountEntity;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+            this.offsetZ = offsetZ;
+            this.name = name;
         }
     }
 }

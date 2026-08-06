@@ -21,6 +21,7 @@ public class ModelManager {
 
     private final VehiclePhysics plugin;
     private final Map<String, ModelNode> modelCache = new HashMap<>();
+    private final Map<String, List<SeatData>> seatCache = new HashMap<>();
     private final Gson gson = new Gson();
 
     public ModelManager(VehiclePhysics plugin) {
@@ -36,6 +37,20 @@ public class ModelManager {
             modelCache.put(modelName, model);
         }
         return model;
+    }
+
+    /**
+     * Get all seats defined in the BDEngine model.
+     * Returns an empty list if the model has no seats.
+     */
+    public List<SeatData> getSeats(String modelName) {
+        if (seatCache.containsKey(modelName)) {
+            return seatCache.get(modelName);
+        }
+        // Ensure model is loaded
+        getModel(modelName);
+        // loadModel populates seatCache
+        return seatCache.getOrDefault(modelName, Collections.emptyList());
     }
 
     private ModelNode loadModel(String modelName) {
@@ -71,6 +86,8 @@ public class ModelManager {
     }
 
     private ModelNode parseBdEngine(InputStream inputStream, String modelName) {
+        List<SeatData> extractedSeats = new ArrayList<>();
+
         try (GZIPInputStream gis = new GZIPInputStream(inputStream)) {
 
             byte[] header = new byte[9];
@@ -119,16 +136,134 @@ public class ModelManager {
                     String jsonText = new String(contentBytes, StandardCharsets.UTF_8);
                     ModelNode[] rootNodes = gson.fromJson(jsonText, ModelNode[].class);
                     if (rootNodes != null && rootNodes.length > 0) {
+                        // Extract seats from the model tree
+                        extractSeats(rootNodes[0], new float[16], extractedSeats);
+
+                        if (!extractedSeats.isEmpty()) {
+                            plugin.getLogger().info("Found " + extractedSeats.size() + " seat(s) in model " + modelName);
+                            for (SeatData seat : extractedSeats) {
+                                plugin.getLogger().info("  Seat '" + seat.name + "': offset=("
+                                        + seat.offsetX + ", " + seat.offsetY + ", " + seat.offsetZ + ")");
+                            }
+                        }
+
+                        seatCache.put(modelName, extractedSeats);
                         return rootNodes[0];
                     }
                 }
             }
 
+            // No scene.json found or no seats - cache empty list
+            seatCache.put(modelName, extractedSeats);
+
         } catch (Exception e) {
             plugin.getLogger().severe("Error parsing model " + modelName + ": " + e.getMessage());
             e.printStackTrace();
+            seatCache.put(modelName, extractedSeats);
         }
         return null;
+    }
+
+    /**
+     * Recursively walk the model tree and extract seat positions.
+     * Accumulates parent collection transforms to compute seat positions in model space.
+     *
+     * @param node         Current node in the tree
+     * @param parentMatrix 4x4 transform matrix from parent collections (identity if root)
+     * @param seats        List to populate with extracted seats
+     */
+    private void extractSeats(ModelNode node, float[] parentMatrix, List<SeatData> seats) {
+        if (node == null) return;
+
+        // Get this node's local transform matrix (collections have transforms)
+        float[] localMatrix = new float[16];
+        if (node.transforms != null && node.transforms.length == 16) {
+            // BDEngine stores matrices in column-major; Java needs row-major
+            // The existing spawnNode code does .transpose(), so we do the same
+            localMatrix = node.transforms.clone();
+            // Transpose to get row-major
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    localMatrix[r * 4 + c] = node.transforms[c * 4 + r];
+                }
+            }
+        } else {
+            // Identity matrix
+            localMatrix[0] = 1; localMatrix[5] = 1; localMatrix[10] = 1; localMatrix[15] = 1;
+        }
+
+        // Compute combined matrix = parentMatrix * localMatrix
+        float[] combinedMatrix = multiplyMatrices(parentMatrix, localMatrix);
+
+        // If this is an interaction with seat=true, extract it
+        if (node.isInteraction && node.seat) {
+            // The interaction's position (x, y, z) is relative to the parent
+            // We need to transform it by the combined parent matrix to get model-space position
+            float[] worldPos = transformPoint(combinedMatrix, node.x, node.y, node.z);
+
+            SeatData seat = new SeatData();
+            seat.name = node.name != null ? node.name : "Seat " + (seats.size() + 1);
+            seat.offsetX = worldPos[0];
+            seat.offsetY = worldPos[1];
+            seat.offsetZ = worldPos[2];
+            seat.width = node.width;
+            seat.height = node.height;
+            seat.oneTime = node.oneTime;
+            seat.commandsBefore = node.commandsBefore;
+            seat.commandsAfter = node.commandsAfter;
+            seats.add(seat);
+        }
+
+        // Recurse into children
+        if (node.children != null) {
+            for (ModelNode child : node.children) {
+                extractSeats(child, combinedMatrix, seats);
+            }
+        }
+    }
+
+    /**
+     * Multiply two 4x4 matrices (row-major storage).
+     */
+    private float[] multiplyMatrices(float[] a, float[] b) {
+        float[] result = new float[16];
+        for (int r = 0; r < 4; r++) {
+            for (int c = 0; c < 4; c++) {
+                result[r * 4 + c] = 0;
+                for (int k = 0; k < 4; k++) {
+                    result[r * 4 + c] += a[r * 4 + k] * b[k * 4 + c];
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Transform a point by a 4x4 matrix (row-major).
+     * Returns {x, y, z} in model space.
+     */
+    private float[] transformPoint(float[] matrix, float x, float y, float z) {
+        float[] result = new float[3];
+        // Apply the 4x4 transform (assuming bottom row is [0,0,0,1])
+        result[0] = matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3];
+        result[1] = matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7];
+        result[2] = matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11];
+        return result;
+    }
+
+    /**
+     * Data class representing a seat extracted from a BDEngine model.
+     */
+    public static class SeatData {
+        public String name;
+        public float offsetX;  // Relative to model root
+        public float offsetY;
+        public float offsetZ;
+        public float width;
+        public float height;
+        public boolean oneTime;
+        public String commandsBefore;
+        public String commandsAfter;
     }
 
     public static class ModelNode {
@@ -136,7 +271,20 @@ public class ModelManager {
         public boolean isCollection;
         public boolean isItemDisplay;
         public boolean isTextDisplay;
-        public float[] transforms; // 4x4 matrix
+        public boolean isInteraction;
+        public boolean seat;
+        public float[] transforms; // 4x4 matrix (for collections and displays)
+        // Interaction-specific fields (used when isInteraction = true)
+        public float x;
+        public float y;
+        public float z;
+        public float width;
+        public float height;
+        public boolean oneTime;
+        public String commandsBefore;
+        public String commandsAfter;
+        public String commands;
+
         public List<ModelNode> children;
         public TagHead tagHead;
         public TextOptions options;
