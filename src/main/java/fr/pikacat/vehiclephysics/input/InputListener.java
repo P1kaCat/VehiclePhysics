@@ -41,8 +41,6 @@ public class InputListener implements Listener {
                 pi.setRight(input.isRight());
                 pi.setSneak(input.isSneak());
 
-                // Cancel to prevent the player from walking — the vehicle controls movement
-                event.setCancelled(true);
                 break;
             }
         }
@@ -61,7 +59,6 @@ public class InputListener implements Listener {
                     vehicle.setDriver(player);
                     vehicle.getRenderer().enterVehicle(player);
                     player.sendMessage("You are now driving this vehicle. Press Shift to exit.");
-                    event.setCancelled(true);
                 }
                 break;
             }

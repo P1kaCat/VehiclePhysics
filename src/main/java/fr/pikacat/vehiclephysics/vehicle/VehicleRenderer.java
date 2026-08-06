@@ -179,7 +179,7 @@ public class VehicleRenderer {
             });
             parts.add(new DisplayVehicle.Part(itemDisplay, combinedMatrix));
         } else if (node.isTextDisplay && node.options != null && node.options.text != null) {
-            TextDisplay textDisplay = location.getWorld().spawn(TextDisplay.class, display -> {
+            TextDisplay textDisplay = location.getWorld().spawn(location, TextDisplay.class, display -> {
                 display.setText(node.options.text);
                 display.setPersistent(false);
 
