@@ -16,6 +16,8 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 public class ModelManager {
 
@@ -137,13 +139,13 @@ public class ModelManager {
                     ModelNode[] rootNodes = gson.fromJson(jsonText, ModelNode[].class);
                     if (rootNodes != null && rootNodes.length > 0) {
                         // Extract seats from the model tree
-                        float[] identity = new float[16]; identity[0] = 1; identity[5] = 1; identity[10] = 1; identity[15] = 1; extractSeats(rootNodes[0], identity, extractedSeats);
+                        extractSeats(rootNodes[0], new Matrix4f(), extractedSeats);
 
                         if (!extractedSeats.isEmpty()) {
                             plugin.getLogger().info("Found " + extractedSeats.size() + " seat(s) in model " + modelName);
                             for (SeatData seat : extractedSeats) {
                                 plugin.getLogger().info("  Seat '" + seat.name + "': offset=("
-                                        + seat.offsetX + ", " + seat.offsetY + ", " + seat.offsetZ + ")");
+                                        + seat.offsetX + ", " + seat.offsetY + ", " + seat.offsetZ + "), relativeYaw=" + seat.relativeYaw);
                             }
                         }
 
@@ -166,46 +168,46 @@ public class ModelManager {
 
     /**
      * Recursively walk the model tree and extract seat positions.
-     * Accumulates parent collection transforms to compute seat positions in model space.
+     * Uses the SAME JOML Matrix4f transform pipeline as spawnNode(), so seat
+     * positions land in the exact same coordinate space as the visible model
+     * parts (which are known to render correctly). This avoids a whole class
+     * of row-major/column-major mismatch bugs from maintaining two separate
+     * hand-rolled matrix implementations.
      *
      * @param node         Current node in the tree
-     * @param parentMatrix 4x4 transform matrix from parent collections (identity if root)
+     * @param parentMatrix Accumulated transform from root to this node's parent (identity at root)
      * @param seats        List to populate with extracted seats
      */
-    private void extractSeats(ModelNode node, float[] parentMatrix, List<SeatData> seats) {
+    private void extractSeats(ModelNode node, Matrix4f parentMatrix, List<SeatData> seats) {
         if (node == null) return;
 
-        // Get this node's local transform matrix (collections have transforms)
-        float[] localMatrix = new float[16];
+        Matrix4f localMatrix = new Matrix4f();
         if (node.transforms != null && node.transforms.length == 16) {
-            // BDEngine stores matrices in column-major; Java needs row-major
-            // The existing spawnNode code does .transpose(), so we do the same
-            localMatrix = node.transforms.clone();
-            // Transpose to get row-major
-            for (int r = 0; r < 4; r++) {
-                for (int c = 0; c < 4; c++) {
-                    localMatrix[r * 4 + c] = node.transforms[c * 4 + r];
-                }
-            }
-        } else {
-            // Identity matrix
-            localMatrix[0] = 1; localMatrix[5] = 1; localMatrix[10] = 1; localMatrix[15] = 1;
+            localMatrix.set(node.transforms).transpose();
         }
 
-        // Compute combined matrix = parentMatrix * localMatrix
-        float[] combinedMatrix = multiplyMatrices(parentMatrix, localMatrix);
+        Matrix4f combinedMatrix = new Matrix4f(parentMatrix).mul(localMatrix);
 
         // If this is an interaction with seat=true, extract it
         if (node.isInteraction && node.seat) {
-            // The interaction's position (x, y, z) is relative to the parent
-            // We need to transform it by the combined parent matrix to get model-space position
-            float[] worldPos = transformPoint(combinedMatrix, node.x, node.y, node.z);
+            // Transform the interaction's local anchor point into vehicle-root space
+            // using the exact same matrix pipeline spawnNode() uses for visual parts.
+            Vector3f worldPos = new Vector3f();
+            combinedMatrix.transformPosition(new Vector3f(node.x, node.y, node.z), worldPos);
+
+            // Derive the seat's own facing direction from its accumulated rotation,
+            // relative to the vehicle root. BDEngine models face -Z at identity
+            // rotation (established convention used elsewhere in this plugin).
+            Vector3f worldForward = new Vector3f();
+            combinedMatrix.transformDirection(new Vector3f(0, 0, -1), worldForward);
+            float relativeYaw = (float) Math.toDegrees(Math.atan2(-worldForward.x, -worldForward.z));
 
             SeatData seat = new SeatData();
             seat.name = node.name != null ? node.name : "Seat " + (seats.size() + 1);
-            seat.offsetX = worldPos[0];
-            seat.offsetY = worldPos[1] - (node.height / 2.0f);
-            seat.offsetZ = worldPos[2];
+            seat.offsetX = worldPos.x;
+            seat.offsetY = worldPos.y - (node.height / 2.0f);
+            seat.offsetZ = worldPos.z;
+            seat.relativeYaw = relativeYaw;
             seat.width = node.width;
             seat.height = node.height;
             seat.oneTime = node.oneTime;
@@ -223,35 +225,6 @@ public class ModelManager {
     }
 
     /**
-     * Multiply two 4x4 matrices (row-major storage).
-     */
-    private float[] multiplyMatrices(float[] a, float[] b) {
-        float[] result = new float[16];
-        for (int r = 0; r < 4; r++) {
-            for (int c = 0; c < 4; c++) {
-                result[r * 4 + c] = 0;
-                for (int k = 0; k < 4; k++) {
-                    result[r * 4 + c] += a[r * 4 + k] * b[k * 4 + c];
-                }
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Transform a point by a 4x4 matrix (row-major).
-     * Returns {x, y, z} in model space.
-     */
-    private float[] transformPoint(float[] matrix, float x, float y, float z) {
-        float[] result = new float[3];
-        // Apply the 4x4 transform (assuming bottom row is [0,0,0,1])
-        result[0] = matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3];
-        result[1] = matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7];
-        result[2] = matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11];
-        return result;
-    }
-
-    /**
      * Data class representing a seat extracted from a BDEngine model.
      */
     public static class SeatData {
@@ -259,6 +232,7 @@ public class ModelManager {
         public float offsetX;  // Relative to model root
         public float offsetY;
         public float offsetZ;
+        public float relativeYaw; // Seat's own facing offset relative to the vehicle's forward direction, in degrees
         public float width;
         public float height;
         public boolean oneTime;

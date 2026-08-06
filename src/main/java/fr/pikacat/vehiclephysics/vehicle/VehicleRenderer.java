@@ -55,7 +55,7 @@ public class VehicleRenderer {
         if (modelSeats != null && !modelSeats.isEmpty()) {
             plugin.getLogger().info("Spawning " + modelSeats.size() + " seat(s) from BDEngine model for " + data.getId());
             for (ModelManager.SeatData seatData : modelSeats) {
-                createSeat(location, seatData.offsetX, seatData.offsetY, seatData.offsetZ, seatData.name);
+                createSeat(location, seatData.offsetX, seatData.offsetY, seatData.offsetZ, seatData.relativeYaw, seatData.name);
             }
         } else {
             plugin.getLogger().warning("No seats found in BDEngine model '" + data.getId()
@@ -64,8 +64,8 @@ public class VehicleRenderer {
         lastVehicleLocation = location.clone();
     }
 
-    private void createSeat(Location vehicleLocation, double offsetX, double offsetY, double offsetZ, String seatName) {
-        Location mountLoc = computeSeatLocation(vehicleLocation, offsetX, offsetY, offsetZ);
+    private void createSeat(Location vehicleLocation, double offsetX, double offsetY, double offsetZ, float relativeYaw, String seatName) {
+        Location mountLoc = computeSeatLocation(vehicleLocation, offsetX, offsetY, offsetZ, relativeYaw);
         ArmorStand mount = vehicleLocation.getWorld().spawn(mountLoc, ArmorStand.class, stand -> {
             stand.setVisible(false);
             stand.setSmall(true);
@@ -77,13 +77,13 @@ public class VehicleRenderer {
             stand.setRemoveWhenFarAway(false);
         });
         knownSeatIds.add(mount.getUniqueId());
-        seats.add(new SeatEntry(mount, offsetX, offsetY, offsetZ, seatName));
+        seats.add(new SeatEntry(mount, offsetX, offsetY, offsetZ, relativeYaw, seatName));
         VehiclePhysics plugin = VehiclePhysics.getPlugin(VehiclePhysics.class);
         plugin.getLogger().info("Created seat '" + seatName + "' for vehicle " + data.getId() + " at " + mountLoc
-                + " (offset " + offsetX + "," + offsetY + "," + offsetZ + ")");
+                + " (offset " + offsetX + "," + offsetY + "," + offsetZ + ", relativeYaw=" + relativeYaw + ")");
     }
 
-    private Location computeSeatLocation(Location vehicleLocation, double offsetX, double offsetY, double offsetZ) {
+    private Location computeSeatLocation(Location vehicleLocation, double offsetX, double offsetY, double offsetZ, float relativeYaw) {
         float yaw = vehicleLocation.getYaw();
         double rad = Math.toRadians(yaw);
         double adjustedOffsetZ = offsetZ + SEAT_BACKWARD_SHIFT;
@@ -91,7 +91,10 @@ public class VehicleRenderer {
         double rotatedZ = offsetX * Math.sin(rad) + adjustedOffsetZ * Math.cos(rad);
         double adjustedY = offsetY - SMALL_ARMOR_STAND_MOUNT_HEIGHT;
         Location loc = vehicleLocation.clone().add(rotatedX, adjustedY, rotatedZ);
-        loc.setYaw(yaw + SEAT_YAW_OFFSET);
+        // Base 180 flip (BDEngine root faces -Z, Minecraft yaw=0 faces +Z) plus
+        // the seat's OWN local facing relative to the vehicle root, read straight
+        // from the model instead of assuming every seat faces dead-forward.
+        loc.setYaw(yaw + SEAT_YAW_OFFSET + relativeYaw);
         return loc;
     }
 
@@ -199,7 +202,7 @@ public class VehicleRenderer {
         // Teleport each seat ArmorStand to the predicted position
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
-                Location mountLoc = computeSeatLocation(predictedLoc, seat.offsetX, seat.offsetY, seat.offsetZ);
+                Location mountLoc = computeSeatLocation(predictedLoc, seat.offsetX, seat.offsetY, seat.offsetZ, seat.relativeYaw);
                 seat.mountEntity.teleport(mountLoc);
             }
         }
@@ -244,13 +247,15 @@ public class VehicleRenderer {
         final double offsetX;
         final double offsetY;
         final double offsetZ;
+        final float relativeYaw;
         final String name;
 
-        SeatEntry(Entity mountEntity, double offsetX, double offsetY, double offsetZ, String name) {
+        SeatEntry(Entity mountEntity, double offsetX, double offsetY, double offsetZ, float relativeYaw, String name) {
             this.mountEntity = mountEntity;
             this.offsetX = offsetX;
             this.offsetY = offsetY;
             this.offsetZ = offsetZ;
+            this.relativeYaw = relativeYaw;
             this.name = name;
         }
     }
