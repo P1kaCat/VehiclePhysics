@@ -204,7 +204,7 @@ public class ModelManager {
             SeatData seat = new SeatData();
             seat.name = node.name != null ? node.name : "Seat " + (seats.size() + 1);
             seat.offsetX = worldPos[0];
-            seat.offsetY = worldPos[1];
+            seat.offsetY = worldPos[1] - 0.5f - (node.height / 2.0f);
             seat.offsetZ = worldPos[2];
             seat.width = node.width;
             seat.height = node.height;

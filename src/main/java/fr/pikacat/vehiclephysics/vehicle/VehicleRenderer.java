@@ -25,6 +25,10 @@ public class VehicleRenderer {
     private static final int INTERPOLATION_DURATION = 2;
     private static final int TELEPORT_DURATION = 2;
 
+    // BDEngine models face -Z at yaw=0, but Minecraft faces +Z.
+    // Add 180° to the seat yaw so the player faces the car's front.
+    private static final float SEAT_YAW_OFFSET = 180.0f;
+
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private final List<SeatEntry> seats = new ArrayList<>();
@@ -92,7 +96,10 @@ public class VehicleRenderer {
         double rad = Math.toRadians(yaw);
         double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
         double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
-        return vehicleLocation.clone().add(rotatedX, offsetY, rotatedZ);
+        Location loc = vehicleLocation.clone().add(rotatedX, offsetY, rotatedZ);
+        // Rotate seat 180° so the player faces the car's front (BDEngine faces -Z, Minecraft faces +Z)
+        loc.setYaw(yaw + SEAT_YAW_OFFSET);
+        return loc;
     }
 
     public void enterVehicle(Player player) {
@@ -190,11 +197,10 @@ public class VehicleRenderer {
             }
         }
 
-        // Teleport each seat to its rotated position
+        // Teleport each seat to its rotated position (with 180° yaw offset for facing direction)
         for (SeatEntry seat : seats) {
             if (seat.mountEntity.isValid()) {
                 Location mountLoc = computeSeatLocation(loc, seat.offsetX, seat.offsetY, seat.offsetZ);
-                mountLoc.setYaw(yaw);
                 seat.mountEntity.teleport(mountLoc);
             }
         }
