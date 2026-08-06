@@ -5,6 +5,7 @@ import fr.pikacat.vehiclephysics.managers.ModelManager;
 import fr.pikacat.vehiclephysics.rendering.DisplayVehicle;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
@@ -23,8 +24,11 @@ import java.util.UUID;
 
 public class VehicleRenderer {
 
-    private static final int INTERPOLATION_DURATION = 2;
-    private static final int TELEPORT_DURATION = 2;
+    // 1-tick interpolation matches our 1-tick update rate.
+    // With 2-tick interpolation + 1-tick teleport, the client never finished
+    // interpolating before the next teleport arrived, causing parts to lag.
+    private static final int INTERPOLATION_DURATION = 1;
+    private static final int TELEPORT_DURATION = 1;
     private static final float SEAT_YAW_OFFSET = 180.0f;
     private static final double SMALL_ARMOR_STAND_MOUNT_HEIGHT = 1.0;
     private static final double SEAT_BACKWARD_SHIFT = 0.15;
@@ -175,6 +179,13 @@ public class VehicleRenderer {
                 Location partLoc = loc.clone();
                 partLoc.setYaw(yaw);
                 part.entity.teleport(partLoc);
+                // Re-apply interpolation settings after teleport to ensure
+                // they stay active for the next interpolation cycle
+                if (part.entity instanceof Display display) {
+                    display.setTeleportDuration(TELEPORT_DURATION);
+                    display.setInterpolationDuration(INTERPOLATION_DURATION);
+                    display.setInterpolationDelay(0);
+                }
             }
         }
 
