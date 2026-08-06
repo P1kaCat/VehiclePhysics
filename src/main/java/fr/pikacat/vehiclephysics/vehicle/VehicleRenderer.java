@@ -29,6 +29,11 @@ public class VehicleRenderer {
     // Add 180° to the seat yaw so the player faces the car's front.
     private static final float SEAT_YAW_OFFSET = 180.0f;
 
+    // Vanilla Minecraft mounts passengers above a small ArmorStand's feet, not at its feet.
+    // This is a fixed engine geometry correction (not per-vehicle calibration) so the
+    // player's feet land exactly at the BDEngine seat's bottom position.
+    private static final double SMALL_ARMOR_STAND_MOUNT_HEIGHT = 0.9;
+
     private final VehicleData data;
     private final List<DisplayVehicle.Part> parts = new ArrayList<>();
     private final List<SeatEntry> seats = new ArrayList<>();
@@ -96,7 +101,10 @@ public class VehicleRenderer {
         double rad = Math.toRadians(yaw);
         double rotatedX = offsetX * Math.cos(rad) - offsetZ * Math.sin(rad);
         double rotatedZ = offsetX * Math.sin(rad) + offsetZ * Math.cos(rad);
-        Location loc = vehicleLocation.clone().add(rotatedX, offsetY, rotatedZ);
+        // Subtract the vanilla mount height so the player's feet (not the ArmorStand's feet)
+        // land exactly at the BDEngine seat's bottom position.
+        double adjustedY = offsetY - SMALL_ARMOR_STAND_MOUNT_HEIGHT;
+        Location loc = vehicleLocation.clone().add(rotatedX, adjustedY, rotatedZ);
         // Rotate seat 180° so the player faces the car's front (BDEngine faces -Z, Minecraft faces +Z)
         loc.setYaw(yaw + SEAT_YAW_OFFSET);
         return loc;
